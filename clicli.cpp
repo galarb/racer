@@ -104,7 +104,7 @@ void clicli::run() {
        case 'd': // test encoder
         Serial.println(mycar.goencoder(command[1], command[2], 3, 0, 0));      //steps, times, P, I, D
         break;
-       case 'e'://read encoder
+       case 'k'://read encoder
         Serial.println(mycar.getSteps());
         break;
 
