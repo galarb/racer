@@ -7,6 +7,7 @@
 #include <Servo.h>
 #include "camtrack.h"
 #include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
 
 #define NEOPIXpin 6
 #define NUMPIXELS 8 
@@ -14,6 +15,7 @@
 
 Servo SteeringServo; 
 Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXpin, NEO_GRB + NEO_KHZ800);
+SoftwareSerial bluetoothSerial(10, 11); // RX, TX pins for HC-05/HC-06
 
 Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize) {
  
@@ -23,6 +25,8 @@ Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize)
   _in1 = in1;
   _in2 = in2;
   _wheelsize = wheelsize;  
+  _speed = 0;
+  _direction = 0;
   
   pinMode(_encoderPin, INPUT_PULLUP); 
   pinMode(_Ena, OUTPUT); 
@@ -56,8 +60,55 @@ void Car::begin(double bdrate) {
   pixels.setBrightness(100);
   delay(30);
 
-}
+  bluetoothSerial.begin(9600); // Bluetooth module baud rate
 
+}
+void Car::bt(){
+  if(bluetoothSerial.available()){
+    char btdata = bluetoothSerial.read();
+    switch(btdata){
+      case '1':
+        pinMode(13, OUTPUT);
+        digitalWrite(13,HIGH);
+        break;
+      case '2':
+        pinMode(13, OUTPUT);
+        digitalWrite(13,LOW);
+        break;
+      case '3': //stop
+        stop();
+        delay(2000); 
+        break;
+      case '4': //increase speed
+        _speed +=10;
+        move(_speed);
+        break;
+      case '5': //decrease speed
+        _speed -=10;
+        move(_speed);
+        break;  
+      case '6': //steer right
+        _direction +=10;
+        steer(_direction);
+        break;
+      case '7': //steer left
+        _direction -=10;
+        steer(_direction);
+        break;       
+    }
+   }
+   
+  //send data handler
+    bluetoothSerial.print(_speed);//Value1
+    bluetoothSerial.print("|");
+    bluetoothSerial.print(_direction);//value2
+    bluetoothSerial.print("|");
+    bluetoothSerial.print(int(getrefligh()));
+    bluetoothSerial.print("|");
+    bluetoothSerial.print("Hi from Arduino");//text message to app
+    bluetoothSerial.print("|");
+    bluetoothSerial.println("");
+}
 double Car::PIDcalc(double inp, int sp){
     Serial.println(steps);
 
@@ -123,7 +174,7 @@ void Car::move(int speed){
     analogWrite(_Ena, abs(speed));
   }
   else{Serial.println("Wrong motor speed value");}
-  
+ _speed = speed;
 }
 
 void Car::stop(){
@@ -136,6 +187,7 @@ void Car::steer(int dir){
  int tempdir = map(dir, -100, 100, 10, 170); //90 is the absolute zero of my car
  SteeringServo.write(tempdir); 
  pixshow(dir);
+ _direction = dir;
 }
 
 long Car::getrefligh(){

@@ -7,7 +7,7 @@
 // neopixels reserved pin 6.
 Car mycar(
   5, //servoPin
-  7, //encoderPin
+  A2, //exncoderPin
   3, //Ena on L298N
   4, //in1
   2, //in2
@@ -22,9 +22,10 @@ void setup() {
 
 void loop() {
  mycli.run();
- mycam.run(1, 0, 0);
- delay(100);
- // mycar.steer(mycam.run(1, 0, 0));
+ //mycam.run(1, 0, 0);
+ delay(20);
+ mycar.bt();
+ //mycar.steer(mycam.run(1, 0, 0));
  //mycar.goencoder(100, 100, 1, 0, 0);
 
  //Serial.println(mycar.getrefligh());

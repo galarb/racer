@@ -23,6 +23,7 @@ class Car {
     void gomm(long distancemm);
     void pix(int red, int green, int blue);
     void pixshow(int dir);
+    void bt();
 
   private:
     int _servoPin;
@@ -32,6 +33,9 @@ class Car {
     int _in2;
     int _reflightPin;
     int _wheelsize;
+    int _speed;
+    int _direction;
+    int _refligh;
     double PIDcalc(double inp, int sp);
     unsigned long currentTime;
     unsigned long previousTime;

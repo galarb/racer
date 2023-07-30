@@ -13,9 +13,7 @@ int yTarget = 0;
 int _speed = 0;
 Camtrack::Camtrack(Car &car):mycar(car) {}
 
-HUSKYLENS huskylens;
-//SoftwareSerial mySerial(10, 11); // RX, TX
-//HUSKYLENS green line >> Pin 10; blue line >> Pin 11
+HUSKYLENS huskylens; //connected on I2C
 void printResult(HUSKYLENSResult result);
 
 
@@ -23,11 +21,10 @@ void Camtrack::begin(int speed) {
   _speed = speed;
   Serial.begin(115200);
   Wire.begin();
- // mySerial.begin(9600);
   while (!huskylens.begin(Wire))
     {
         Serial.println(F("Begin failed!"));
-        Serial.println(F("1.Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings>>Protocol Type>>Serial 9600)"));
+        Serial.println(F("1.Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings>>Protocol Type>>I2C)"));
         Serial.println(F("2.Please recheck the connection."));
         delay(100);
     }
