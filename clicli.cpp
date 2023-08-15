@@ -113,7 +113,7 @@ void clicli::run() {
         break;
        
        case 'f': //reflected light
-        Serial.print("steps = ");
+        Serial.print("Reflected light = ");
         Serial.println(mycar.getrefligh());
         break;
 
@@ -128,7 +128,18 @@ void clicli::run() {
        case 's':
         mycar.stop();
         break;
-
+       case 'p':
+        mycar.pix(command[1], command[2], command[3]);
+        break;
+       case 'b':
+        mycar.checkbatlevel();
+        break;
+       case 'a':
+        mycar.lcdswitch(command[1]);
+        break;
+       case 't':
+        mycar.btreset();
+        break;
 
         case 'e': // analog read
         pinMode(command[1],INPUT);

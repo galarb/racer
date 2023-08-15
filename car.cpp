@@ -1,3 +1,4 @@
+#include "Stream.h"
 #include "HardwareSerial.h"
 #include "car.h"
 #include <Arduino.h>
@@ -15,10 +16,12 @@
 
 Servo SteeringServo; 
 Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXpin, NEO_GRB + NEO_KHZ800);
-SoftwareSerial bluetoothSerial(10, 11); // RX, TX pins for HC-05/HC-06
+SoftwareSerial bluetoothSerial(8,9); // RX, TX pins for HC-05/HC-068, 9
+LiquidCrystal_I2C lcd(0x27,16,2);
 
-Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize) {
- 
+Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize):mycam(*this) {
+  
+ // Camtrack x(*this);
   _servoPin = servoPin;
   _encoderPin = encoderPin;
   _Ena = Ena;
@@ -27,7 +30,9 @@ Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize)
   _wheelsize = wheelsize;  
   _speed = 0;
   _direction = 0;
-  
+  _BTstatus = false;
+  _onofsw  = false;
+
   pinMode(_encoderPin, INPUT_PULLUP); 
   pinMode(_Ena, OUTPUT); 
   pinMode(_in1, OUTPUT);
@@ -54,26 +59,59 @@ void Car::begin(double bdrate) {
   Serial.println("Reflected light Pin = A1");
   Serial.println("Neopixels Pin = 6");  
   
+
   SteeringServo.attach(_servoPin);
-  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  pixels.begin(); // INITIALIZE NeoPixel strip object 
   pixels.clear();
   pixels.setBrightness(100);
-  delay(30);
-
+  pix(0, 80, 80);
+  delay(70);
+  
+  mycam.begin(200);//sets the default tracking speed (0-255)
   bluetoothSerial.begin(9600); // Bluetooth module baud rate
 
+  lcd.init();  
+  lcd.backlight();
+  lcd.setCursor(5,0);
+  lcd.print("Racer");
+  lcd.setCursor(1, 1);
+  lcd.print("Setup finished");
+  pix(0, 0, 0);
+  lcd.setBacklight(0);
+
 }
+
 void Car::bt(){
+   //send data handler
+  bluetoothSerial.print(_speed);//Value1
+  bluetoothSerial.print("|");
+  bluetoothSerial.print(_direction);//value2
+  bluetoothSerial.print("|");
+  bluetoothSerial.print(int(getrefligh()));
+  bluetoothSerial.print("|");
+  bluetoothSerial.print("Hi");//text message to app
+  bluetoothSerial.print("|");
+  bluetoothSerial.print(checkbatlevel());//text message to app
+  bluetoothSerial.print("|");
+  bluetoothSerial.print("10");//
+  bluetoothSerial.print("|"); // bluetoothSerial.write(13); //this is \r=new line
+  bluetoothSerial.println("");
+  delay(10);
+  //receive data
   if(bluetoothSerial.available()){
     char btdata = bluetoothSerial.read();
     switch(btdata){
-      case '1':
+      case '1'://blink
         pinMode(13, OUTPUT);
+       for(int i = 0; i < 20; i++){
         digitalWrite(13,HIGH);
+        delay(50);
+        digitalWrite(13,LOW);
+        delay(50);
+        }
         break;
       case '2':
-        pinMode(13, OUTPUT);
-        digitalWrite(13,LOW);
+        //reserved
         break;
       case '3': //stop
         stop();
@@ -81,10 +119,12 @@ void Car::bt(){
         break;
       case '4': //increase speed
         _speed +=10;
+        if(_speed > 254){_speed = 254;}
         move(_speed);
         break;
       case '5': //decrease speed
         _speed -=10;
+        if(_speed < -254){_speed = -254;}
         move(_speed);
         break;  
       case '6': //steer right
@@ -94,20 +134,30 @@ void Car::bt(){
       case '7': //steer left
         _direction -=10;
         steer(_direction);
-        break;       
+        break;    
+      case '8':
+        _onofsw = true;
+        break;
+      case '9':
+        _onofsw = false;
+        stop();
+        break;
+      case 'a':
+        lcd.backlight();
+        break;    
+      case 'b':
+        lcd.setBacklight(0);
+        break;   
+       
     }
+    _BTstatus = true;
    }
-   
-  //send data handler
-    bluetoothSerial.print(_speed);//Value1
-    bluetoothSerial.print("|");
-    bluetoothSerial.print(_direction);//value2
-    bluetoothSerial.print("|");
-    bluetoothSerial.print(int(getrefligh()));
-    bluetoothSerial.print("|");
-    bluetoothSerial.print("Hi from Arduino");//text message to app
-    bluetoothSerial.print("|");
-    bluetoothSerial.println("");
+   else {
+    _BTstatus = false;
+  }
+  //check camera operational status
+  camswitch(_onofsw);
+  
 }
 double Car::PIDcalc(double inp, int sp){
     Serial.println(steps);
@@ -139,16 +189,17 @@ long Car::getSteps(){
 }
 
 long Car::goencoder(int clicks, int times, double KP, double KI, double KD){
-  Serial.println(steps);
 
   kp = KP;
   ki = KI; 
   kd = KD;
   steps = 0; //reset the steps count
   for(int i = 0; i < times; i++) {
+    Serial.println(steps);
+
     int tempsteps = getSteps(); //input value
     int output = PIDcalc(tempsteps, clicks); //output value = the calculated error
-    //lcdenshow(clicks, output, tempsteps);
+    lcdenshow(clicks, output, tempsteps);
     delay(30);
     if (output > 0){  // 
      move(output);
@@ -175,6 +226,7 @@ void Car::move(int speed){
   }
   else{Serial.println("Wrong motor speed value");}
  _speed = speed;
+ ShowInfoLcd(_speed, _direction, _BTstatus);
 }
 
 void Car::stop(){
@@ -188,6 +240,8 @@ void Car::steer(int dir){
  SteeringServo.write(tempdir); 
  pixshow(dir);
  _direction = dir;
+ ShowInfoLcd(_speed, _direction, _BTstatus);
+
 }
 
 long Car::getrefligh(){
@@ -268,3 +322,119 @@ void Car::pixshow(int dir){
 
   }
 }
+void Car::lcdswitch(bool status){
+  if(status){lcd.backlight();}
+  else{lcd.setBacklight(0);}
+}
+
+void Car::ShowInfoLcd(int speed, int direction, int BTstatus){ 
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("speed| dir | BT ");
+  lcd.setCursor(1,1);
+  lcd.print(speed);  
+  lcd.setCursor(5,1);
+  lcd.print("|"); 
+  lcd.setCursor(7,1);
+  lcd.print(direction); 
+  lcd.setCursor(11,1);
+  lcd.print("|");  
+  lcd.setCursor(13,1);
+  lcd.print(BTstatus); 
+}
+
+void Car::lcdenshow(int clicks, int output, int tempsteps){ 
+  lcd.setBacklight(1);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+   //        0123456789012345 
+  lcd.print(" SP | PID |  PV ");
+  lcd.setCursor(0,1);
+  lcd.print(clicks);  
+  lcd.setCursor(4,1);
+  lcd.print("|"); 
+  lcd.setCursor(6,1);
+  lcd.print(output); 
+  lcd.setCursor(10,1);
+  lcd.print("|");  
+  lcd.setCursor(12,1);
+  lcd.print(tempsteps); 
+}
+int Car::checkbatlevel(){
+  //pixels.clear();
+  smootheningfunction:
+  int voltage = map(analogRead(A0), 0, 800, 0, 80); //Sampling input voltage through voltage divider
+  int tempvoltage1 = map(analogRead(A0), 0, 800, 0, 80); //taking two measurements to reduce false alarms
+  int tempvoltage2 = map(analogRead(A0), 0, 800, 0, 80); //more smoothing
+  if(voltage == tempvoltage1 && voltage == tempvoltage2){  
+    switch (voltage) {
+      case 0 ... 59:
+      for(int i = 0; i < 4; i++){
+        pixels.setPixelColor(i, 255, 0, 0);
+        }
+      pixels.show();
+      Serial.println("battery critically LOW!");
+
+        break;
+      case 60 ... 64:
+        for(int i = 0; i < 4; i++){
+          pixels.setPixelColor(i, 255, 0, 0);
+          }
+        pixels.setPixelColor(4, 0, 255, 0);
+        pixels.show();
+        Serial.println("battery LOW - change now");
+        lcd.backlight();
+        lcd.print("battery very low");
+        break;
+      case 65 ... 69:
+        pixels.setPixelColor(4, 0, 255, 0);
+        pixels.setPixelColor(5, 0, 255, 0);
+        pixels.show();
+        break;
+      case 70 ... 77:
+        pixels.setPixelColor(0, 255, 0, 0);
+        pixels.setPixelColor(1, 255, 0, 0);
+        pixels.setPixelColor(2, 255, 0, 0);
+        pixels.setPixelColor(3, 255, 0, 0); 
+        pixels.setPixelColor(4, 0, 255, 0);
+        pixels.setPixelColor(5, 0, 255, 0);
+        pixels.setPixelColor(6, 0, 0, 255);
+        pixels.setPixelColor(7, 0, 0, 0);
+        pixels.show();
+        break;
+      case 78 ... 84:
+        pixels.setPixelColor(0, 255, 0, 0);
+        pixels.setPixelColor(1, 255, 0, 0);
+        pixels.setPixelColor(2, 255, 0, 0);
+        pixels.setPixelColor(3, 255, 0, 0);     
+        pixels.setPixelColor(4, 0, 255, 0);
+        pixels.setPixelColor(5, 0, 255, 0);
+        pixels.setPixelColor(6, 0, 0, 255);
+        pixels.setPixelColor(7, 0, 0, 255);
+        pixels.show();
+        break;
+    }
+    return map(voltage, 50, 84, 0, 100);
+  }  
+  else{goto smootheningfunction;}
+}
+void Car::btreset(){
+  bluetoothSerial.end();
+  Serial.println("resetting BT");
+  delay(1000);
+  bluetoothSerial.begin(9600);
+}
+void Car::run(int kpp, int kii, int kdd){
+  mycam.run(kpp, kii, kdd);
+}
+
+void Car::camswitch(bool onofsw){
+ _onofsw = onofsw;
+ if(_onofsw){
+   run(1, 0, 0);
+   _onofsw = true;
+  }
+  else{
+   _onofsw = false;
+  }
+ }

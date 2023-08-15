@@ -1,5 +1,7 @@
 #ifndef CAMTRACK_H
 #define CAMTRACK_H
+//#include "car.h"
+struct Car;
 
  class Camtrack {
   Car &mycar;

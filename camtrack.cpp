@@ -19,11 +19,10 @@ void printResult(HUSKYLENSResult result);
 
 void Camtrack::begin(int speed) {
   _speed = speed;
-  Serial.begin(115200);
   Wire.begin();
-  while (!huskylens.begin(Wire))
+  if (!huskylens.begin(Wire))
     {
-        Serial.println(F("Begin failed!"));
+        Serial.println(F("Husky Begin failed!"));
         Serial.println(F("1.Please recheck the \"Protocol Type\" in HUSKYLENS (General Settings>>Protocol Type>>I2C)"));
         Serial.println(F("2.Please recheck the connection."));
         delay(100);
