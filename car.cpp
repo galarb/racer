@@ -1,6 +1,8 @@
+#include "pins_arduino.h"
+#include "car.h"
+#include "WString.h"
 #include "Stream.h"
 #include "HardwareSerial.h"
-#include "car.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
@@ -9,21 +11,28 @@
 #include "camtrack.h"
 #include <Adafruit_NeoPixel.h>
 #include <SoftwareSerial.h>
+#include <Adafruit_PWMServoDriver.h>
+
 
 #define NEOPIXpin 6
 #define NUMPIXELS 8 
 #define DELAYVAL 500 // Time (in milliseconds) to pause between pixels
-
+#define TimeoutCam 100 //default camera tracking cycles
 Servo SteeringServo; 
 Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXpin, NEO_GRB + NEO_KHZ800);
-SoftwareSerial bluetoothSerial(8,9); // RX, TX pins for HC-05/HC-068, 9
+SoftwareSerial bluetoothSerial(8, 9); // RX, TX pins for HC-05/HC-068, 9
 LiquidCrystal_I2C lcd(0x27,16,2);
+Adafruit_PWMServoDriver pca9685 = Adafruit_PWMServoDriver(0x40);//object to represent PCA9685 at default I2C address  (0x40, more extensions up to 0x60)
 
-Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize):mycam(*this) {
+volatile long Car::steps = 0; // Initialize the static member variable
+String textmessage = "Racer Sais Hi";
+
+Car::Car(int servoPin, int encoderPin, int buttonPin, int Ena, int in1, int in2, int wheelsize):mycam(*this) {
   
  // Camtrack x(*this);
   _servoPin = servoPin;
   _encoderPin = encoderPin;
+  _buttonPin = buttonPin;
   _Ena = Ena;
   _in1 = in1;
   _in2 = in2;
@@ -33,14 +42,17 @@ Car::Car(int servoPin, int encoderPin, int Ena, int in1, int in2, int wheelsize)
   _BTstatus = false;
   _onofsw  = false;
 
-  pinMode(_encoderPin, INPUT_PULLUP); 
+
+  pinMode(_encoderPin, INPUT); 
   pinMode(_Ena, OUTPUT); 
   pinMode(_in1, OUTPUT);
   pinMode(_in2, OUTPUT);
-  pinMode(A0, INPUT);
-  pinMode(A1, INPUT);
+  pinMode(A3, INPUT);
+  pinMode(A4, INPUT);
 
 }
+
+
 
 void Car::begin(double bdrate) {
   delay(30);
@@ -56,7 +68,7 @@ void Car::begin(double bdrate) {
   Serial.println(_encoderPin);
   Serial.print("Steering Servo Pin = ");  
   Serial.println(_servoPin);
-  Serial.println("Reflected light Pin = A1");
+  Serial.println("Reflected light Pin = A2");
   Serial.println("Neopixels Pin = 6");  
   
 
@@ -66,10 +78,18 @@ void Car::begin(double bdrate) {
   pixels.setBrightness(100);
   pix(0, 80, 80);
   delay(70);
-  
+
   mycam.begin(200);//sets the default tracking speed (0-255)
+
   bluetoothSerial.begin(9600); // Bluetooth module baud rate
 
+  //Using Interupt to check when there is a chage from obstruction to hole in the encoder
+  attachInterrupt(digitalPinToInterrupt(_encoderPin), Car::getSteps, FALLING); //on falling edge, perform getSteps()
+
+  pca9685.begin();  
+  pca9685.setPWMFreq(500);   // Set PWM Frequency(24-1526Hz). (default 500Hz)
+ 
+  
   lcd.init();  
   lcd.backlight();
   lcd.setCursor(5,0);
@@ -78,11 +98,41 @@ void Car::begin(double bdrate) {
   lcd.print("Setup finished");
   pix(0, 0, 0);
   lcd.setBacklight(0);
-
+  Serial.println("Setup finished");
 }
 
+bool Car::camswitch(bool onofsw){
+  _onofsw = onofsw;
+  Serial.print("onofsw status = ");
+  Serial.println(_onofsw);
+  //while(1){run(1, 0, 0);}
+  /*if(_onofsw){
+   for(int i = 0; i < TimeoutCam; i++){
+     run(1, 0, 0);
+     }
+   _onofsw = false;
+  }
+  else{
+         run(0, 0, 0);
+
+  }*/
+  return (_onofsw);
+ }
+
 void Car::bt(){
-   //send data handler
+  /// String senddata = "254|100|100|HI from Racer!!|100|10\0"; 
+  String senddata = String(_speed)  + "|" + String(_direction) + "|" + String(getrefligh()) + "|" + String(textmessage) + "|" + String(checkbatlevel()) + "|" + "10" + "|\n";
+  Serial.print(senddata);
+  char dataBuffer[50];
+  senddata.toCharArray(dataBuffer, sizeof(dataBuffer));
+  for (int i = 0; dataBuffer[i] != '\0'; i++) {
+   // bluetoothSerial.write(dataBuffer[i]);
+    //Serial.print(dataBuffer[i]);
+   }
+
+  delay(10);
+  
+  /*
   bluetoothSerial.print(_speed);//Value1
   bluetoothSerial.print("|");
   bluetoothSerial.print(_direction);//value2
@@ -96,7 +146,8 @@ void Car::bt(){
   bluetoothSerial.print("10");//
   bluetoothSerial.print("|"); // bluetoothSerial.write(13); //this is \r=new line
   bluetoothSerial.println("");
-  delay(10);
+  delay(10);*/
+  
   //receive data
   if(bluetoothSerial.available()){
     char btdata = bluetoothSerial.read();
@@ -115,15 +166,15 @@ void Car::bt(){
         break;
       case '3': //stop
         stop();
-        delay(2000); 
+        delay(1000); 
         break;
       case '4': //increase speed
-        _speed +=10;
+        _speed +=30;
         if(_speed > 254){_speed = 254;}
         move(_speed);
         break;
       case '5': //decrease speed
-        _speed -=10;
+        _speed -=30;
         if(_speed < -254){_speed = -254;}
         move(_speed);
         break;  
@@ -143,6 +194,7 @@ void Car::bt(){
         stop();
         break;
       case 'a':
+        lcd.clear();
         lcd.backlight();
         break;    
       case 'b':
@@ -160,7 +212,7 @@ void Car::bt(){
   
 }
 double Car::PIDcalc(double inp, int sp){
-    Serial.println(steps);
+  //  Serial.println(steps);
 
    currentTime = millis();                //get current time
    elapsedTime = (double)(currentTime - previousTime)/1000; //compute time elapsed from previous computation (60ms approx). divide in 1000 to get in Sec
@@ -172,7 +224,7 @@ double Car::PIDcalc(double inp, int sp){
    if(rateError > 0.3 || rateError < -0.3){cumError = 0;}             // reset the Integral commulator when Proportional is doing the work
 
    double out = kp*error + ki*cumError + kd*rateError; //PID output               
-   //Serial.println(cumError);
+
    lastError = error;                                 //remember current error
    previousTime = currentTime;                        //remember current time
    if(out > 254){out = 254;}    //limit the function for smoother operation
@@ -181,32 +233,32 @@ double Car::PIDcalc(double inp, int sp){
    return out;                                        //the function returns the PID output value 
   
 }
-long Car::getSteps(){
-  if(digitalRead(_encoderPin)){ //1 = obstruction, 0 = hole
-     steps = steps +1; 
-   }
-  return steps;
+
+void Car::getSteps(){
+     steps++; 
 }
 
-long Car::goencoder(int clicks, int times, double KP, double KI, double KD){
-
-  kp = KP;
-  ki = KI; 
-  kd = KD;
-  steps = 0; //reset the steps count
-  for(int i = 0; i < times; i++) {
-    Serial.println(steps);
-
-    int tempsteps = getSteps(); //input value
-    int output = PIDcalc(tempsteps, clicks); //output value = the calculated error
-    lcdenshow(clicks, output, tempsteps);
-    delay(30);
-    if (output > 0){  // 
-     move(output);
+long Car::goencoder(long clicks, int times, double KP, double KI, double KD){
+  unsigned long millisBefore;
+  if (millis() - millisBefore > 500) {//non blocking check window for the Interrupt
+      kp = KP/10;
+      ki = KI; 
+      kd = KD;
+      steps = 0; //reset the steps count
+      for(int i = 0; i < times; i++) {
+        //Serial.println(steps);
+        //input value is steps
+        int output = PIDcalc(steps, clicks); //output value = the calculated error
+        lcdenshow(clicks, output, steps);
+        delay(30);
+        if (output > 0){  // 
+        move(output);
+        }
+        if (output < 0){  // 
+        stop();
+        } 
+     millisBefore = millis();
     }
-    if (output < 0){  // 
-     stop();
-    } 
   }
  stop(); //reset the motor after moving
  return(steps * ((PI * _wheelsize) / 20));
@@ -236,16 +288,19 @@ void Car::stop(){
 }  
 
 void Car::steer(int dir){
- int tempdir = map(dir, -100, 100, 10, 170); //90 is the absolute zero of my car
- SteeringServo.write(tempdir); 
+ int tempdir = map(dir, -100, 100, 2100, 3350);  //2725 uSec Duty Cycle is my Zero heading
+ 
+ //SteeringServo.write(tempdir); //I preffered to use the PCA9685 rather then rely on Arduino PWM signals, due to distortions caused when the BT is active. very strange. 
+ pca9685.setPWM(8, 0, tempdir);    // Write to PCA9685. ״1״  at 0, 0 at "value"
+ //Serial.println(tempdir);
  pixshow(dir);
  _direction = dir;
- ShowInfoLcd(_speed, _direction, _BTstatus);
+ //ShowInfoLcd(_speed, _direction, _BTstatus);
 
 }
 
-long Car::getrefligh(){
-  int x = analogRead(A1);
+int Car::getrefligh(){
+  int x = analogRead(A2);
   return(x);
 }
 void Car::trackline(int speed, int color, double KP, double KI, double KD){
@@ -265,7 +320,9 @@ void Car::trackline(int speed, int color, double KP, double KI, double KD){
 void Car::gomm(long distancemm){ //covert to encoder clicks
   //one click is perimeter divided by 20 holes (in my encoder wheel)
   long clicks = distancemm / ((PI * _wheelsize) / 20);
-  Serial.println(goencoder(clicks, 1000, 3, 2, 0));
+  Serial.println(clicks);
+
+  Serial.println(goencoder(clicks, 100, 100, 1, 0));
 }
 
 void Car::pix(int red, int green, int blue){
@@ -333,22 +390,23 @@ void Car::ShowInfoLcd(int speed, int direction, int BTstatus){
   lcd.print("speed| dir | BT ");
   lcd.setCursor(1,1);
   lcd.print(speed);  
-  lcd.setCursor(5,1);
-  lcd.print("|"); 
+  lcd.setCursor(4,1);
+  lcd.print(" |  "); 
   lcd.setCursor(7,1);
   lcd.print(direction); 
-  lcd.setCursor(11,1);
-  lcd.print("|");  
+  lcd.setCursor(10,1);
+  lcd.print(" | ");  
   lcd.setCursor(13,1);
   lcd.print(BTstatus); 
+
 }
 
 void Car::lcdenshow(int clicks, int output, int tempsteps){ 
-  lcd.setBacklight(1);
+ // lcd.setBacklight(1);
   lcd.clear();
   lcd.setCursor(0, 0);
    //        0123456789012345 
-  lcd.print(" SP | PID |  PV ");
+  lcd.print(" SP | PID |steps");
   lcd.setCursor(0,1);
   lcd.print(clicks);  
   lcd.setCursor(4,1);
@@ -358,16 +416,18 @@ void Car::lcdenshow(int clicks, int output, int tempsteps){
   lcd.setCursor(10,1);
   lcd.print("|");  
   lcd.setCursor(12,1);
-  lcd.print(tempsteps); 
+  lcd.print(steps); 
 }
 int Car::checkbatlevel(){
   //pixels.clear();
   smootheningfunction:
-  int voltage = map(analogRead(A0), 0, 800, 0, 80); //Sampling input voltage through voltage divider
-  int tempvoltage1 = map(analogRead(A0), 0, 800, 0, 80); //taking two measurements to reduce false alarms
-  int tempvoltage2 = map(analogRead(A0), 0, 800, 0, 80); //more smoothing
+  int voltage = map(analogRead(A3), 0, 800, 0, 80); //Sampling input voltage through voltage divider
+  int tempvoltage1 = map(analogRead(A3), 0, 800, 0, 80); //taking two measurements to reduce false alarms
+  int tempvoltage2 = map(analogRead(A3), 0, 800, 0, 80); //more smoothing
   if(voltage == tempvoltage1 && voltage == tempvoltage2){  
+    Serial.println(voltage);
     switch (voltage) {
+      
       case 0 ... 59:
       for(int i = 0; i < 4; i++){
         pixels.setPixelColor(i, 255, 0, 0);
@@ -428,13 +488,8 @@ void Car::run(int kpp, int kii, int kdd){
   mycam.run(kpp, kii, kdd);
 }
 
-void Car::camswitch(bool onofsw){
- _onofsw = onofsw;
- if(_onofsw){
-   run(1, 0, 0);
-   _onofsw = true;
-  }
-  else{
-   _onofsw = false;
-  }
- }
+
+byte i2c (int port, int value) { //writes a value to the i2c port
+     value = map(value, 0, 255, 0, 4095);
+     pca9685.setPWM(port, 0, value);    // Write to PCA9685. ״1״  at 0, 0 at "value"
+}

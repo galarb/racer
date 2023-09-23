@@ -99,17 +99,26 @@ void clicli::run() {
        case 'v': // test servo motor (angle)
         mycar.steer(command[1]);
         break;
+       case 'z'://camera onoff switch
+        if(command[1]){
+          while(1){mycar.run(1, 0, 0);}
+        }
+        
+        ;
+
+        break;
 
 
        case 'd': // test encoder
         Serial.println(mycar.goencoder(command[1], command[2], 3, 0, 0));      //steps, times, P, I, D
         break;
-       case 'k'://read encoder
-        Serial.println(mycar.getSteps());
-        break;
+
+       case 'k': // test encoder
+        mycar.gomm(command[1]); 
+        break;       
 
        case 'g': // test encoder
-        mycar.goencoder(command[1], command[2], command[3], 0, 0); 
+        mycar.goencoder(command[1], command[2], command[3], command[4], 0); 
         break;
        
        case 'f': //reflected light
@@ -132,7 +141,9 @@ void clicli::run() {
         mycar.pix(command[1], command[2], command[3]);
         break;
        case 'b':
-        mycar.checkbatlevel();
+        for(int i=0; i<100; i++){
+          mycar.checkbatlevel();
+        }
         break;
        case 'a':
         mycar.lcdswitch(command[1]);

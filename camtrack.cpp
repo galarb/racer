@@ -34,7 +34,7 @@ int Camtrack::run(int _kp, int _ki, int _kd){
     else if(!huskylens.available()) Serial.println(F("No block or arrow appears on the screen!"));
     else
     {
-        //Serial.println(F("###########"));
+      Serial.println(F("###########"));
         while (huskylens.available())
         {
             HUSKYLENSResult result = huskylens.read();
